@@ -25,6 +25,27 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 ### Security
 - in case of vulnerabilities.
 -->
+## [Unreleased]
+
+### Added
+
+- Added the `-s` (`--socket`) option — the address of the Yggdrasil admin API socket.
+
+### Changed
+
+- API mode (`-a`) no longer reads the Yggdrasil configuration file. The admin socket address is taken from the `-s` option or its default (`unix:///run/yggdrasil/yggdrasil.sock`; on Windows `tcp://localhost:9001`), so `-a` works without a configuration file. The configuration file (`-c`) is now used only together with `-u`; in builds without the `updating_cfg` feature the `-c` option no longer exists.
+- The `-r` (`--restart`) option now takes effect only together with `-u`.
+- A failure to communicate with the admin API in `-a` mode now results in a non-zero exit code.
+
+### Fixed
+
+- Fixed a runtime panic in builds made with `--no-default-features --features using_api` (accessing the unregistered `-r` argument).
+- `-n 0` no longer adds all downloaded peers (both in the configuration file and via the API).
+- Peers that did not respond to ping are no longer added.
+- The default admin socket address on Windows is now a valid URI (`tcp://localhost:9001`).
+- The admin socket URI parser now accepts uppercase letters in hostnames and the correct `quic://` scheme spelling.
+- The write-access pre-check of the configuration file now checks actual access rights instead of the read-only attribute.
+
 ## [0.3.4] - 2024-08-06
 
 ### Added

@@ -1,13 +1,10 @@
 use crate::peer::Peer;
 
-#[cfg(feature = "using_api")]
-use nu_json::Map;
-
 use std::fs;
 use std::path::PathBuf;
 use std::process;
 
-#[cfg(any(feature = "updating_cfg", feature = "using_api"))]
+#[cfg(feature = "updating_cfg")]
 mod cfg_file_read_write;
 
 #[cfg(any(
@@ -53,6 +50,19 @@ fn main() {
         false
     };
 
+    #[cfg(feature = "using_api")]
+    if !use_api && matches.value_source("socket") == Some(clap::parser::ValueSource::CommandLine) {
+        eprintln!("Warning: the `-s` (`--socket`) option is ignored without `-a` (`--api`).");
+    }
+
+    #[cfg(all(feature = "updating_cfg", feature = "using_api"))]
+    if use_api
+        && !update_cfg
+        && matches.value_source("config") == Some(clap::parser::ValueSource::CommandLine)
+    {
+        eprintln!("Warning: the configuration file is not used in API mode; the admin socket address is taken from `-s` (`--socket`).");
+    }
+
     if !(print_only || update_cfg || use_api) {
         println!("At least the `-p` option is expected.");
         println!("For more information try '-h'.");
@@ -60,7 +70,7 @@ fn main() {
         process::exit(0);
     }
 
-    #[cfg(any(feature = "updating_cfg", feature = "using_api"))]
+    #[cfg(feature = "updating_cfg")]
     let conf_path = match matches.get_one::<PathBuf>("config") {
         Some(conf_path) => conf_path,
         _ => {
@@ -196,20 +206,20 @@ fn main() {
                 }
             };
 
-            //Reading the configuration file
-            let cfg_txt = match cfg_file_read_write::read_config(conf_path) {
-                Ok(_ct) => _ct,
-                Err(e) => {
-                    eprintln!("The configuration file cannot be read ({}).", e);
-                    process::exit(1);
-                }
-            };
-
             let exrta_peers: Option<&String> = matches.get_one("extra");
 
             // Adding peers to the configuration file
             #[cfg(feature = "updating_cfg")]
             if update_cfg {
+                //Reading the configuration file
+                let cfg_txt = match cfg_file_read_write::read_config(conf_path) {
+                    Ok(_ct) => _ct,
+                    Err(e) => {
+                        eprintln!("The configuration file cannot be read ({}).", e);
+                        process::exit(1);
+                    }
+                };
+
                 cfg_file_read_write::add_peers_to_conf_new(
                     &peers,
                     conf_path,
@@ -220,7 +230,8 @@ fn main() {
             }
 
             //Restart if required
-            if matches.get_flag("restart") {
+            #[cfg(feature = "updating_cfg")]
+            if update_cfg && matches.get_flag("restart") {
                 #[cfg(not(target_os = "windows"))]
                 let _ = std::process::Command::new("systemctl")
                     .arg("restart")
@@ -243,24 +254,26 @@ fn main() {
             // Adding peers during execution
             #[cfg(feature = "using_api")]
             if use_api {
-                //Parsing the configuration file
-                let mut conf_obj: Map<String, nu_json::Value> = match nu_json::from_str(&cfg_txt) {
-                    Ok(co) => co,
-                    Err(e) => {
-                        eprintln!("Can't parse the config file ({})!", e);
+                let socket_addr = match matches.get_one::<String>("socket") {
+                    Some(_s) => _s,
+                    _ => {
+                        eprintln!("Can't get the admin socket default address.");
                         process::exit(1);
                     }
                 };
 
-                using_api::update_peers(&peers, &mut conf_obj, n_peers, exrta_peers);
+                if !using_api::update_peers(&peers, socket_addr, n_peers, exrta_peers) {
+                    process::exit(1);
+                }
             }
         }
     }
 }
 
 #[cfg(feature = "updating_cfg")]
-fn check_permissions(path: &PathBuf) -> std::io::Result<bool> {
-    let md = fs::metadata(path)?;
-    let permissions = md.permissions();
-    Ok(permissions.readonly())
+fn check_permissions(path: &PathBuf) -> std::io::Result<()> {
+    // Opening for writing checks actual access rights, unlike the read-only
+    // attribute, which does not take the current user into account.
+    fs::OpenOptions::new().write(true).open(path)?;
+    Ok(())
 }

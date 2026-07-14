@@ -22,11 +22,11 @@ enum Connection {
 
 pub fn update_peers(
     peers: &Vec<Peer>,
-    conf_obj: &mut Map<String, nu_json::Value>,
+    socket_addr_str: &str,
     n_peers: u8,
     always_in_p: Option<&String>,
-) {
-    let socket_addr = get_socket_addr(conf_obj);
+) -> bool {
+    let socket_addr = get_socket_addr(socket_addr_str);
 
     let mut response = String::new();
 
@@ -34,7 +34,7 @@ pub fn update_peers(
     request("{\"request\": \"getpeers\"}", &socket_addr, &mut response);
     if response.is_empty() {
         eprintln!("Can't get connected peers.");
-        return;
+        return false;
     }
 
     // Removing old peers
@@ -44,6 +44,9 @@ pub fn update_peers(
     let mut n_added: u8 = 0;
     let mut added_hosts: Vec<String> = Vec::with_capacity(n_peers.into());
     for peer in peers {
+        if n_added >= n_peers || !peer.is_alive {
+            break;
+        }
         if added_hosts.contains(&peer.addr) {
             continue;
         }
@@ -51,16 +54,13 @@ pub fn update_peers(
         request(
             format!(
                 "{{\"request\": \"addpeer\", \"arguments\": {{\"uri\": \"{}\"}}}}",
-                peer.uri
+                json_escape(&peer.uri)
             )
             .as_str(),
             &socket_addr,
             &mut response,
         );
         n_added += 1;
-        if n_added == n_peers {
-            break;
-        }
         added_hosts.push(peer.addr.to_owned());
     }
 
@@ -72,7 +72,7 @@ pub fn update_peers(
             request(
                 format!(
                     "{{\"request\": \"addpeer\", \"arguments\": {{\"uri\": \"{}\"}}}}",
-                    ai_s
+                    json_escape(ai_s)
                 )
                 .as_str(),
                 &socket_addr,
@@ -80,6 +80,12 @@ pub fn update_peers(
             );
         }
     }
+
+    true
+}
+
+fn json_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn socket_io<T: std::io::Write + std::io::Read>(
@@ -229,21 +235,12 @@ fn get_connection(sock_addr: &SockAddr) -> Connection {
     };
 }
 
-fn get_socket_addr(conf_obj: &mut Map<String, nu_json::Value>) -> SockAddr {
-    //Extract value from conf_obj
-    let mut _t_sa: String;
-    let string_addr = if let Some(_string_addr) = conf_obj.get("AdminListen") {
-        _t_sa = format!("{}", _string_addr).replace('"', "");
-
-        _t_sa
-    } else {
-        String::from(crate::defaults::DEF_SOCKET_ADDR)
-    };
-
-    if string_addr.contains("unix://") {
+fn get_socket_addr(string_addr: &str) -> SockAddr {
+    let string_addr = string_addr.trim();
+    if let Some(_path) = string_addr.strip_prefix("unix://") {
         //unix domain socket
         #[cfg(not(target_os = "windows"))]
-        return SockAddr::Unix(string_addr.replace('"', "").replace("unix://", ""));
+        return SockAddr::Unix(_path.to_string());
         #[allow(unreachable_code)]
         {
             eprintln!("It is not possible to use a unix socket in Windows.");
@@ -253,14 +250,14 @@ fn get_socket_addr(conf_obj: &mut Map<String, nu_json::Value>) -> SockAddr {
     } else {
         //tcp
         //Parsing the URI of the admin socket
-        let re = match regex::Regex::new(r"(tcp|tls|quik)://([a-z0-9\.\-:\[\]]+):([0-9]+)") {
+        let re = match regex::Regex::new(r"(tcp|tls|quic)://([a-zA-Z0-9\.\-:\[\]]+):([0-9]+)") {
             Ok(_r) => _r,
             Err(e) => {
                 eprintln!("Failed to create an instance of the RegEx parser ({}).", e);
                 std::process::exit(1);
             }
         };
-        let mut cap_iter = re.captures_iter(string_addr.as_str());
+        let mut cap_iter = re.captures_iter(string_addr);
         let cap = match cap_iter.next() {
             Some(_c) => _c,
             None => {
@@ -317,50 +314,45 @@ mod tests {
 
     #[test]
     fn test_get_socket_addr_unix() {
-        let admin_listen_param = "{
-            AdminListen: unix:///run/yggdrasil/yggdrasil.sock
-        }";
-        let mut hjson_obj = nu_json::from_str(admin_listen_param).unwrap();
+        let string_addr = "unix:///run/yggdrasil/yggdrasil.sock";
         #[cfg(not(target_os = "windows"))]
         assert_eq!(
-            get_socket_addr(&mut hjson_obj),
+            get_socket_addr(string_addr),
             SockAddr::Unix("/run/yggdrasil/yggdrasil.sock".to_string())
         );
         #[cfg(target_os = "windows")]
-        assert_eq!(get_socket_addr(&mut hjson_obj), SockAddr::None);
+        assert_eq!(get_socket_addr(string_addr), SockAddr::None);
     }
 
     #[test]
     fn test_get_socket_addr_ip() {
-        let admin_listen_param = "{
-            AdminListen: tcp://127.0.0.1:9002
-        }";
-        let mut hjson_obj = nu_json::from_str(admin_listen_param).unwrap();
         assert_eq!(
-            get_socket_addr(&mut hjson_obj),
+            get_socket_addr("tcp://127.0.0.1:9002"),
             SockAddr::Tcp("127.0.0.1:9002".to_socket_addrs().unwrap().next().unwrap())
         );
     }
 
     #[test]
     fn test_get_socket_addr_domain_name() {
-        let admin_listen_param = "{
-            AdminListen: tcp://localhost:9002
-        }";
-        let mut hjson_obj = nu_json::from_str(admin_listen_param).unwrap();
-        let res = get_socket_addr(&mut hjson_obj)
+        let string_addr = "tcp://localhost:9002";
+        let res = get_socket_addr(string_addr)
             == SockAddr::Tcp("127.0.0.1:9002".to_socket_addrs().unwrap().next().unwrap())
-            || get_socket_addr(&mut hjson_obj)
+            || get_socket_addr(string_addr)
                 == SockAddr::Tcp("[::1]:9002".to_socket_addrs().unwrap().next().unwrap());
         assert_eq!(true, res);
     }
 
     #[test]
     fn test_get_socket_addr_domain_name_port_is_missing() {
-        let admin_listen_param = "{
-            AdminListen: tcp://localhost
-        }";
-        let mut hjson_obj = nu_json::from_str(admin_listen_param).unwrap();
-        assert_eq!(get_socket_addr(&mut hjson_obj), SockAddr::None);
+        assert_eq!(get_socket_addr("tcp://localhost"), SockAddr::None);
+    }
+
+    #[test]
+    fn test_get_socket_addr_default() {
+        // The built-in default must always be parseable on the target platform.
+        assert_ne!(
+            get_socket_addr(crate::defaults::DEF_SOCKET_ADDR),
+            SockAddr::None
+        );
     }
 }

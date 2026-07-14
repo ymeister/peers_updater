@@ -13,14 +13,15 @@ Usage: peers_updater [OPTIONS]
 
 Options:
   -p, --print           Print the peers sorted by latency
-  -c, --config <FILE>   The path to the Yggdrasil configuration file [default: /etc/yggdrasil/yggdrasil.conf or C:\ProgramData\Yggdrasil\yggdrasil.conf]
+  -c, --config <FILE>   The path to the Yggdrasil configuration file (used when updating the configuration with `-u`) [default: /run/yggdrasil/yggdrasil.conf or C:\ProgramData\Yggdrasil\yggdrasil.conf]
   -u, --update_cfg      Make changes to the Yggdrasil configuration file. If not specified, no changes will be made to the file.
   -a, --api             Add/remove peers during execution (requires enabling the admin API)
+  -s, --socket <URI>    The address of the Yggdrasil admin API socket [default: unix:///run/yggdrasil/yggdrasil.sock or tcp://localhost:9001]
   -n, --number <VALUE>  The number of peers to add (excluding extra ones) [default: 3]
   -e, --extra <VALUE>   A space-separated string with the URIs of the peers that should always be in the configuration
   -i, --ignore <VALUE>  A space-separated string of characters. Peers whose URIs contain combinations of characters will not be added to the configuration
   -I, --ignore_country <VALUE> A space-separated string containing the names of countries that will not be added to the configuration
-  -r, --restart         Restart the Yggdrasil (systemd or windows) service
+  -r, --restart         Restart the Yggdrasil (systemd or windows) service (effective only together with `-u`)
   -S, --self_update     Self-updating of this utility. An executable file will be downloaded from the releases on GitHub (if a newer version is published there) and the current one will be replaced with a new one.
   -h, --help            Print help information
   -V, --version         Print version information
@@ -32,6 +33,8 @@ In order for the utility to work fully and correctly, making changes to the Yggd
 
 It doesn't make sense to use the `-r` (restart Yggdrasil) and `-a` (use admin API) flags at the same time.
 
+In API mode (`-a`) the configuration file is not read: the admin socket address is taken from the `-s` (`--socket`) option or its default. The configuration file is only needed for `-u`, so `-a` works even on systems where no configuration file is available.
+
 **Please note:** the `-i` (`--ignore`) and `-I` (`--ignore_country`) options must be used judiciously. The fact is that Yggdrasil developers [recommend](https://github.com/yggdrasil-network/public-peers#how-do-i-pick-peers) using 2-3 public peers that are geographically closest to you to connect to the network. Geographically closest - in order for the connection delay to be minimal and the connection to be more stable.
 
 [peer_updater](https://github.com/ygguser/peers_updater) automatically selects peers with the fastest response time, but using the options mentioned above you can [accidentally] ignore peers closest to you and thus increase the load on your peer and reduce the quality of the connection.
@@ -42,6 +45,12 @@ Output of a sorted list of peers:
 
 ```
 ./peers_updater -p
+```
+
+Adding peers (three) via the admin API only — no configuration file required:
+
+```
+./peers_updater -a -n 3 -s unix:///run/yggdrasil/yggdrasil.sock
 ```
 
 Updating peers in the configuration file at the specified path (two peers will be added):

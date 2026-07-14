@@ -1,13 +1,13 @@
 #[cfg(target_os = "windows")]
-#[cfg(any(feature = "updating_cfg", feature = "using_api"))]
+#[cfg(feature = "updating_cfg")]
 pub const DEF_CFG_PATH: &str = r"C:\ProgramData\Yggdrasil\yggdrasil.conf";
 #[cfg(not(target_os = "windows"))]
-#[cfg(any(feature = "updating_cfg", feature = "using_api"))]
+#[cfg(feature = "updating_cfg")]
 pub const DEF_CFG_PATH: &str = "/run/yggdrasil/yggdrasil.conf";
 
 #[cfg(target_os = "windows")]
 #[cfg(feature = "using_api")]
-pub const DEF_SOCKET_ADDR: &str = "localhost:9001";
+pub const DEF_SOCKET_ADDR: &str = "tcp://localhost:9001";
 #[cfg(not(target_os = "windows"))]
 #[cfg(feature = "using_api")]
 pub const DEF_SOCKET_ADDR: &str = "unix:///run/yggdrasil/yggdrasil.sock";

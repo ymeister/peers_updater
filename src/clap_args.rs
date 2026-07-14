@@ -1,10 +1,10 @@
 use clap::arg;
 
 #[cfg(any(feature = "updating_cfg", feature = "using_api"))]
-use {
-    clap::{value_parser, Arg},
-    std::path::PathBuf,
-};
+use clap::Arg;
+
+#[cfg(feature = "updating_cfg")]
+use {clap::value_parser, std::path::PathBuf};
 
 pub fn build_args() -> clap::ArgMatches {
     let mut app = clap::Command::new("Yggdrasil peers updater")
@@ -28,7 +28,7 @@ pub fn build_args() -> clap::ArgMatches {
         .required(false)
     );
 
-    #[cfg(any(feature = "updating_cfg", feature = "using_api"))]
+    #[cfg(feature = "updating_cfg")]
     {
         app = app.arg(
             Arg::new("config")
@@ -36,7 +36,7 @@ pub fn build_args() -> clap::ArgMatches {
                 .long("config")
                 .default_value(crate::defaults::DEF_CFG_PATH)
                 .value_name("FILE")
-                .help("The path to the Yggdrasil configuration file")
+                .help("The path to the Yggdrasil configuration file (used when updating the configuration with `-u`)")
                 .required(false)
                 .value_parser(value_parser!(PathBuf)),
         );
@@ -52,7 +52,7 @@ pub fn build_args() -> clap::ArgMatches {
         )
         .arg(
             arg!(
-                -r --restart "Restart the Yggdrasil (systemd or windows) service"
+                -r --restart "Restart the Yggdrasil (systemd or windows) service (effective only together with `-u`)"
             )
             .required(false)
         );
@@ -65,6 +65,15 @@ pub fn build_args() -> clap::ArgMatches {
                 -a --api "Add/remove peers during execution (requires enabling the admin API)"
             )
             .required(false),
+        )
+        .arg(
+            Arg::new("socket")
+                .short('s')
+                .long("socket")
+                .default_value(crate::defaults::DEF_SOCKET_ADDR)
+                .value_name("URI")
+                .help("The address of the Yggdrasil admin API socket (e.g. unix:///run/yggdrasil/yggdrasil.sock or tcp://localhost:9001)")
+                .required(false),
         );
     }
 
