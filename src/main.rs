@@ -97,6 +97,93 @@ fn main() {
         }
     }
 
+    #[cfg(any(feature = "updating_cfg", feature = "using_api"))]
+    let n_peers: u8 = if print_only {
+        // With `-p` all other parameters are ignored
+        0
+    } else {
+        let number = match matches.get_one::<String>("number") {
+            Some(_n) => _n,
+            _ => {
+                eprintln!("Can't get the default number of peers.");
+                process::exit(1);
+            }
+        };
+        match number.parse() {
+            Ok(_n) => _n,
+            Err(e) => {
+                eprintln!(
+                    "The number of peers must be in the range from 0 to 255 ({}).",
+                    e
+                );
+                process::exit(1);
+            }
+        }
+    };
+
+    #[cfg(any(feature = "updating_cfg", feature = "using_api"))]
+    let extra_peers: Option<&String> = matches.get_one("extra");
+
+    #[cfg(feature = "using_api")]
+    let socket_addr = match matches.get_one::<String>("socket") {
+        Some(_s) => _s,
+        _ => {
+            eprintln!("Can't get the admin socket default address.");
+            process::exit(1);
+        }
+    };
+
+    let ignored_peers: &str = match matches.get_one::<String>("ignore") {
+        Some(_i_p) => _i_p.as_str(),
+        None => "",
+    };
+
+    let ignored_countries: &str = match matches.get_one::<String>("ignore_country") {
+        Some(_i_c) => _i_c.as_str(),
+        None => "",
+    };
+
+    // The connected peers can only be checked against the ignore filters
+    // after downloading the peers list, so with the filters the quick check
+    // is skipped and a full reconciliation is forced. The same with `-u`:
+    // the fresh list is downloaded anyway and is written to the
+    // configuration file, so the daemon is reconciled to it too
+    #[cfg(feature = "using_api")]
+    let force_reconcile =
+        !(ignored_peers.is_empty() && ignored_countries.is_empty()) || update_cfg;
+
+    // In API-only mode `-n 0` needs nothing from the peers list: the
+    // managed peers are removed (and the extras added) via the API alone
+    #[cfg(feature = "using_api")]
+    if use_api && !update_cfg && !print_only && n_peers == 0 {
+        if !using_api::update_peers(&[], socket_addr, n_peers, extra_peers, force_reconcile) {
+            process::exit(1);
+        }
+        process::exit(0);
+    }
+
+    // In API-only mode, first check whether there is anything to do at all,
+    // so as not to download and ping peers for nothing
+    #[cfg(feature = "using_api")]
+    if use_api && !print_only && !force_reconcile {
+        match using_api::quick_check(socket_addr, n_peers, extra_peers) {
+            using_api::QuickCheck::Satisfied { extras_added } => {
+                if extras_added > 0 {
+                    println!("Added {} missing extra peer(s).", extras_added);
+                }
+                println!(
+                    "Already connected to {} healthy public peers, nothing else to do.",
+                    n_peers
+                );
+                process::exit(0);
+            }
+            using_api::QuickCheck::Error => {
+                process::exit(1);
+            }
+            using_api::QuickCheck::NeedsWork | using_api::QuickCheck::AddOnly => {}
+        }
+    }
+
     // Creating a temporary directory
     let tmp_dir = match tmpdir::create_tmp_dir(None) {
         Ok(val) => val,
@@ -137,16 +224,6 @@ fn main() {
     let peers_dir: PathBuf =
         std::path::Path::new(format!("{}/public-peers-master/", &tmp_dir.display()).as_str())
             .to_path_buf();
-
-    let ignored_peers: &str = match matches.get_one::<String>("ignore") {
-        Some(_i_p) => _i_p.as_str(),
-        None => "",
-    };
-
-    let ignored_countries: &str = match matches.get_one::<String>("ignore_country") {
-        Some(_i_c) => _i_c.as_str(),
-        None => "",
-    };
 
     // Collecting peers in a vector
     let mut peers: Vec<Peer> = Vec::new();
@@ -193,79 +270,55 @@ fn main() {
         }
         process::exit(0);
     } else if update_cfg || use_api {
-        #[cfg(any(feature = "updating_cfg", feature = "using_api"))]
-        if let Some(number) = matches.get_one::<String>("number") {
-            let n_peers: u8 = match number.parse() {
-                Ok(_n) => _n,
+        // Adding peers to the configuration file
+        #[cfg(feature = "updating_cfg")]
+        if update_cfg {
+            //Reading the configuration file
+            let cfg_txt = match cfg_file_read_write::read_config(conf_path) {
+                Ok(_ct) => _ct,
                 Err(e) => {
-                    eprintln!(
-                        "The number of peers must be in the range from 0 to 255 ({}).",
-                        e
-                    );
+                    eprintln!("The configuration file cannot be read ({}).", e);
                     process::exit(1);
                 }
             };
 
-            let exrta_peers: Option<&String> = matches.get_one("extra");
+            cfg_file_read_write::add_peers_to_conf_new(
+                &peers,
+                conf_path,
+                n_peers,
+                extra_peers,
+                &cfg_txt,
+            );
+        }
 
-            // Adding peers to the configuration file
-            #[cfg(feature = "updating_cfg")]
-            if update_cfg {
-                //Reading the configuration file
-                let cfg_txt = match cfg_file_read_write::read_config(conf_path) {
-                    Ok(_ct) => _ct,
-                    Err(e) => {
-                        eprintln!("The configuration file cannot be read ({}).", e);
-                        process::exit(1);
-                    }
-                };
+        //Restart if required
+        #[cfg(feature = "updating_cfg")]
+        if update_cfg && matches.get_flag("restart") {
+            #[cfg(not(target_os = "windows"))]
+            let _ = std::process::Command::new("systemctl")
+                .arg("restart")
+                .arg("yggdrasil")
+                .spawn();
 
-                cfg_file_read_write::add_peers_to_conf_new(
-                    &peers,
-                    conf_path,
-                    n_peers,
-                    exrta_peers,
-                    &cfg_txt,
-                );
-            }
-
-            //Restart if required
-            #[cfg(feature = "updating_cfg")]
-            if update_cfg && matches.get_flag("restart") {
-                #[cfg(not(target_os = "windows"))]
-                let _ = std::process::Command::new("systemctl")
-                    .arg("restart")
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("net")
+                    .arg("stop")
+                    .arg("yggdrasil")
+                    .output();
+                let _ = std::process::Command::new("net")
+                    .arg("start")
                     .arg("yggdrasil")
                     .spawn();
-
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = std::process::Command::new("net")
-                        .arg("stop")
-                        .arg("yggdrasil")
-                        .output();
-                    let _ = std::process::Command::new("net")
-                        .arg("start")
-                        .arg("yggdrasil")
-                        .spawn();
-                }
             }
+        }
 
-            // Adding peers during execution
-            #[cfg(feature = "using_api")]
-            if use_api {
-                let socket_addr = match matches.get_one::<String>("socket") {
-                    Some(_s) => _s,
-                    _ => {
-                        eprintln!("Can't get the admin socket default address.");
-                        process::exit(1);
-                    }
-                };
-
-                if !using_api::update_peers(&peers, socket_addr, n_peers, exrta_peers) {
-                    process::exit(1);
-                }
-            }
+        // Adding/removing peers during execution
+        #[cfg(feature = "using_api")]
+        if use_api
+            && !using_api::update_peers(&peers, socket_addr, n_peers, extra_peers, force_reconcile)
+        {
+            process::exit(1);
         }
     }
 }

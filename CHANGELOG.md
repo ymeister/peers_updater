@@ -36,6 +36,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - API mode (`-a`) no longer reads the Yggdrasil configuration file. The admin socket address is taken from the `-s` option or its default (`unix:///run/yggdrasil/yggdrasil.sock`; on Windows `tcp://localhost:9001`), so `-a` works without a configuration file. The configuration file (`-c`) is now used only together with `-u`; in builds without the `updating_cfg` feature the `-c` option no longer exists.
 - The `-r` (`--restart`) option now takes effect only together with `-u`.
 - A failure to communicate with the admin API in `-a` mode now results in a non-zero exit code.
+- In API mode, if exactly `-n` healthy managed peers (outbound, public, not in `-e`) are already connected and there are no down or duplicate managed connections to clean up, the utility now exits before downloading the list of public peers, making scheduled runs cheap. Otherwise the managed peers are reconciled with the fresh top-`-n` set: the ones still among the best are kept instead of being removed and re-added, the excess ones are removed. With the `-i`/`-I` filters and with `-u` the early exit is skipped and a full reconciliation is done, so already-connected peers matching the filters get replaced and the daemon stays in sync with the updated configuration file.
+- Peers are identified by their host everywhere (counting, extras matching, reconciliation), the port is disregarded: at most one managed connection per host is kept, an extra (`-e`) peer protects all connections to its host, and duplicate connections to one host are trimmed.
+- Extra (`-e`) peers are added via the API only when they are not already configured (a configured but currently down extra is not re-added). Extra URIs that cannot be parsed are matched literally and reported with a warning.
+- On daemons that do not report the peer direction in `getpeers` (Yggdrasil <= 0.4.7), peers are neither counted nor removed; the utility degrades to only adding peers.
+- If the `getpeers` reply cannot be parsed, the utility no longer aborts: it adds up to `-n` peers and the extras without removing anything.
+- Failed `addpeer`/`removepeer` API requests are now reported instead of being silently ignored, and requests that cannot be delivered to the daemon make the exit code non-zero.
 
 ### Fixed
 
@@ -45,6 +51,11 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - The default admin socket address on Windows is now a valid URI (`tcp://localhost:9001`).
 - The admin socket URI parser now accepts uppercase letters in hostnames and the correct `quic://` scheme spelling.
 - The write-access pre-check of the configuration file now checks actual access rights instead of the read-only attribute.
+- API mode no longer removes peers it does not manage: multicast (link-local) peers, peers on loopback, private (RFC1918) and unique-local addresses, inbound connections, extra (`-e`) peers and peers with unrecognized URIs (e.g. `socks://`) are kept.
+- Non-public peers are now detected by parsing the address instead of URI substring matching, so public peers whose URI merely contains `fe80:`, `169.254.` or `%` are managed normally.
+- `-a -n 0` removes the managed peers again (keeping the extras) without downloading the peers list, and lowering `-n` trims the excess.
+- If some or all downloaded peers do not respond to ping, API mode keeps the already connected healthy peers in the unfilled slots instead of removing them without replacement.
+- `-p` no longer fails on an invalid `-n` value (all other parameters are ignored with `-p`, as documented).
 
 ## [0.3.4] - 2024-08-06
 

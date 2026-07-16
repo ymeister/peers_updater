@@ -1,5 +1,4 @@
 use crate::peer::Peer;
-use regex::Regex;
 use std::fs::File;
 use std::io;
 use std::io::BufRead;
@@ -68,13 +67,7 @@ pub fn collect_peers(
     ignored_peers_str: &str,
     ignored_countries_str: &str,
 ) -> io::Result<bool> {
-    let re = match Regex::new(r"(tcp|tls|quic|ws|wss)://([a-z0-9\.\-:\[\]]+):([0-9]+)") {
-        Ok(_r) => _r,
-        Err(e) => {
-            eprintln!("Failed to create an instance of the RegEx parser ({}).", e);
-            process::exit(1);
-        }
-    };
+    let re = crate::peer::uri_regex();
 
     let ignored_peers: &Vec<&str> = &(ignored_peers_str.split(' ').collect());
     let ignored_countries: &Vec<&str> = &(ignored_countries_str.split(' ').collect());
