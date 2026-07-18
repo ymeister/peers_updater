@@ -16,9 +16,9 @@ pub fn build_args() -> clap::ArgMatches {
         feature = "using_api",
         feature = "self_updating"
     )) {
-        app = app.about("The Yggdrasil peers updater automatically updates the peers in the Yggdrasil configuration file and/or calls addPeer/removePeer from the Yggdrasil Admin API.{n}Source code: https://github.com/ygguser/peers_updater")
+        app = app.about("The Yggdrasil peers updater automatically updates the peers in the Yggdrasil configuration file and/or calls addPeer/removePeer from the Yggdrasil Admin API.{n}Source code: https://github.com/ymeister/peers_updater")
     } else {
-        app = app.about("The Yggdrasil peers updater automatically updates the peers in the Yggdrasil configuration file and/or calls addPeer/removePeer from the Yggdrasil Admin API.{n}Source code: https://github.com/ygguser/peers_updater{n}{n}!!! THE APPLICATION IS BUILT WITH THE `--no-default-features` OPTION!!!")
+        app = app.about("The Yggdrasil peers updater automatically updates the peers in the Yggdrasil configuration file and/or calls addPeer/removePeer from the Yggdrasil Admin API.{n}Source code: https://github.com/ymeister/peers_updater{n}{n}!!! THE APPLICATION IS BUILT WITH THE `--no-default-features` OPTION!!!")
     }
 
     app = app.arg(
@@ -84,7 +84,7 @@ pub fn build_args() -> clap::ArgMatches {
             -n --number <VALUE> "The number of peers to add (excluding extra ones)"
         )
         .required(false)
-        .default_value("3")        
+        .default_value("3")
     )
         .arg(
             arg!(
